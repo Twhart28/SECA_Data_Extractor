@@ -30,6 +30,7 @@ import pdfplumber
 import pytesseract
 from tkinter import Tk, messagebox
 from tkinter import filedialog
+from tkinter import ttk
 
 # --- OCR region configuration ---
 
@@ -501,6 +502,33 @@ def show_message(title: str, message: str) -> None:
     root.destroy()
 
 
+class ProgressWindow:
+    def __init__(self, total_files: int):
+        self.root = Tk()
+        self.root.title("Processing SECA files")
+        self.total_files = total_files
+
+        self.label = ttk.Label(self.root, text="Preparing to process files…")
+        self.label.pack(padx=20, pady=(20, 10))
+
+        self.progress = ttk.Progressbar(
+            self.root, length=320, mode="determinate", maximum=total_files
+        )
+        self.progress.pack(padx=20, pady=(0, 20))
+
+        self.root.update()
+
+    def update_progress(self, current_index: int, filename: str) -> None:
+        self.progress["value"] = current_index
+        self.label.config(
+            text=f"Processing {current_index}/{self.total_files}: {filename}"
+        )
+        self.root.update_idletasks()
+
+    def close(self) -> None:
+        self.root.destroy()
+
+
 def main() -> None:
     pdf_files = select_pdf_files()
     if not pdf_files:
@@ -513,15 +541,27 @@ def main() -> None:
         return
 
     rows = []
-    for pdf in pdf_files:
+    progress = ProgressWindow(total_files=len(pdf_files))
+    parsing_error: Optional[Tuple[Path, Exception]] = None
+
+    for index, pdf in enumerate(pdf_files, start=1):
         try:
             rows.append(extract_pdf_data(pdf))
         except Exception as exc:  # pragma: no cover - user feedback path
-            show_message(
-                "Parsing error",
-                f"Could not parse '{pdf.name}'.\nError: {exc}",
-            )
-            return
+            parsing_error = (pdf, exc)
+            break
+
+        progress.update_progress(index, pdf.name)
+
+    progress.close()
+
+    if parsing_error:
+        pdf, exc = parsing_error
+        show_message(
+            "Parsing error",
+            f"Could not parse '{pdf.name}'.\nError: {exc}",
+        )
+        return
 
     df = pd.DataFrame(rows, columns=OUTPUT_FIELD_ORDER)
     df.to_excel(output_path, index=False)
