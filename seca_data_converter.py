@@ -31,7 +31,7 @@ import pytesseract
 from PIL import ImageTk
 from tkinter import Tk, messagebox
 from tkinter import filedialog
-from tkinter import ttk
+from tkinter import ttk, StringVar
 
 # --- OCR region configuration ---
 
@@ -139,6 +139,8 @@ MEASUREMENT_FIELD_NAMES: List[str] = [
 CALCULATED_FIELD_NAMES: List[str] = [
     "Body Mass Index (kg/m^2)",
 ]
+
+REVIEWABLE_FIELDS = set(MEASUREMENT_FIELD_NAMES + CALCULATED_FIELD_NAMES)
 
 
 def output_field_order() -> List[str]:
@@ -574,84 +576,162 @@ def show_message(title: str, message: str) -> None:
     root.destroy()
 
 
-def prompt_fix_or_continue(has_qc_failures: bool, has_blank_fields: bool) -> bool:
-    issues = []
-    if has_qc_failures:
-        issues.append("quality control failures")
-    if has_blank_fields:
-        issues.append("blank fields")
-    issue_text = " and ".join(issues)
+def prompt_fix_or_continue(blank_count: int, qc_failure_count: int) -> bool:
+    parts = []
+    if qc_failure_count:
+        parts.append(f"{qc_failure_count} quality control failure(s)")
+    if blank_count:
+        parts.append(f"{blank_count} blank OCR field(s)")
+
+    summary = " and ".join(parts) if parts else "detected issues"
+
     root = Tk()
     root.withdraw()
     response = messagebox.askyesno(
         "Review required",
-        f"Detected {issue_text}.\nWould you like to review and correct the data before exporting?",
+        f"Detected {summary}.\nWould you like to review and correct the data before exporting?",
         icon="warning",
     )
     root.destroy()
     return response
 
 
-def prompt_field_edit(field_name: str, image, current_value) -> Tuple[bool, str]:
-    result = {"changed": False, "value": "" if current_value is None else str(current_value)}
-    window = Tk()
-    window.title(f"Review: {field_name}")
+class PostProcessingEditor:
+    KEEP_VALUE = object()
 
-    label = ttk.Label(window, text=f"Update value for '{field_name}'")
-    label.pack(padx=10, pady=(10, 5))
+    def __init__(self, review_items: List[Dict[str, object]]):
+        self.review_items = review_items
+        self.current_index = 0
+        self.decisions: Dict[Tuple[int, str], object] = {}
+        self.committed = False
+        self.current_photo = None
 
-    if image is not None:
-        preview = image.copy()
-        preview.thumbnail((800, 600))
-        photo = ImageTk.PhotoImage(preview)
-        image_label = ttk.Label(window, image=photo)
-        image_label.image = photo  # keep reference
-        image_label.pack(padx=10, pady=5)
+        self.root = Tk()
+        self.root.title("Review OCR fields")
 
-    entry = ttk.Entry(window, width=50)
-    entry.insert(0, result["value"])
-    entry.pack(padx=10, pady=(5, 10))
+        self.progress_label = ttk.Label(self.root, text="")
+        self.progress_label.pack(padx=10, pady=(10, 5))
 
-    def save_and_close():
-        result["value"] = entry.get()
-        result["changed"] = True
-        window.destroy()
+        self.file_label = ttk.Label(self.root, text="")
+        self.file_label.pack(padx=10, pady=5)
 
-    def skip_and_close():
-        window.destroy()
+        self.field_label = ttk.Label(self.root, text="")
+        self.field_label.pack(padx=10, pady=5)
 
-    button_frame = ttk.Frame(window)
-    button_frame.pack(pady=(0, 10))
-    save_button = ttk.Button(button_frame, text="Save", command=save_and_close)
-    save_button.pack(side="left", padx=5)
-    skip_button = ttk.Button(button_frame, text="Keep current", command=skip_and_close)
-    skip_button.pack(side="left", padx=5)
+        self.original_value_var = StringVar()
+        self.original_value_label = ttk.Label(
+            self.root, textvariable=self.original_value_var
+        )
+        self.original_value_label.pack(padx=10, pady=5)
 
-    window.mainloop()
-    return result["changed"], result["value"]
+        self.image_label = ttk.Label(self.root)
+        self.image_label.pack(padx=10, pady=5)
+
+        self.entry_var = StringVar()
+        entry_label = ttk.Label(self.root, text="Edit OCR value")
+        entry_label.pack(padx=10, pady=(5, 0))
+        self.entry = ttk.Entry(self.root, width=50, textvariable=self.entry_var)
+        self.entry.pack(padx=10, pady=(0, 10))
+
+        button_frame = ttk.Frame(self.root)
+        button_frame.pack(pady=(0, 10))
+        self.keep_button = ttk.Button(
+            button_frame, text="Keep OCR value", command=self.keep_value
+        )
+        self.keep_button.pack(side="left", padx=5)
+        self.next_button = ttk.Button(button_frame, text="Next", command=self.save_and_next)
+        self.next_button.pack(side="left", padx=5)
+        self.save_button = ttk.Button(
+            button_frame, text="Save all changes", command=self.commit_changes, state="disabled"
+        )
+        self.save_button.pack(side="left", padx=5)
+
+        self.show_current_item()
+
+    def format_value(self, value: Optional[object]) -> str:
+        if value in (None, ""):
+            return "blank"
+        return str(value)
+
+    def keep_value(self) -> None:
+        if self.current_index >= len(self.review_items):
+            return
+
+        item = self.review_items[self.current_index]
+        self.decisions[(item["entry_index"], item["field"])] = self.KEEP_VALUE
+        self.current_index += 1
+        self.show_current_item()
+
+    def save_and_next(self) -> None:
+        if self.current_index >= len(self.review_items):
+            return
+
+        item = self.review_items[self.current_index]
+        self.decisions[(item["entry_index"], item["field"])] = self.entry_var.get()
+        self.current_index += 1
+        self.show_current_item()
+
+    def commit_changes(self) -> None:
+        self.committed = True
+        self.root.destroy()
+
+    def show_current_item(self) -> None:
+        if self.current_index >= len(self.review_items):
+            self.progress_label.config(text="Review complete. Click Save all changes to apply edits.")
+            self.file_label.config(text="")
+            self.field_label.config(text="")
+            self.original_value_var.set("")
+            self.entry_var.set("")
+            self.entry.state(["disabled"])
+            self.keep_button.state(["disabled"])
+            self.next_button.state(["disabled"])
+            self.image_label.config(image="", text="")
+            self.current_photo = None
+            self.save_button.state(["!disabled"])
+            return
+
+        item = self.review_items[self.current_index]
+        total = len(self.review_items)
+        self.progress_label.config(
+            text=f"Reviewing field {self.current_index + 1} of {total}"
+        )
+        self.file_label.config(text=f"File: {item['file']}")
+        self.field_label.config(text=f"Field: {item['field']}")
+        self.original_value_var.set(
+            f"OCR detected value: {self.format_value(item.get('value'))}"
+        )
+
+        if item.get("image") is not None:
+            preview = item["image"].copy()
+            preview.thumbnail((800, 600))
+            self.current_photo = ImageTk.PhotoImage(preview)
+            self.image_label.config(image=self.current_photo, text="")
+            self.image_label.image = self.current_photo
+        else:
+            self.image_label.config(text="No OCR snapshot available", image="")
+            self.current_photo = None
+            self.image_label.image = None
+
+        self.entry.state(["!disabled"])
+        self.keep_button.state(["!disabled"])
+        self.next_button.state(["!disabled"])
+        self.save_button.state(["disabled"])
+        self.entry_var.set(self.format_value(item.get("value")))
+
+    def run(self) -> Tuple[Dict[Tuple[int, str], object], bool]:
+        self.root.mainloop()
+        return self.decisions, self.committed
 
 
 def review_entries(entries: List[Dict[str, object]]) -> None:
-    any_qc_failures = any(entry["row"].get("Data Quality") == "Fail" for entry in entries)
-    any_blank_fields = any(
-        any(
-            value in (None, "")
-            for field, value in entry["row"].items()
-            if field not in ("Source File", "Data Quality", "Data Quality Fails")
-        )
-        for entry in entries
-    )
+    review_items: List[Dict[str, object]] = []
+    qc_failure_count = 0
+    blank_field_count = 0
 
-    if not (any_qc_failures or any_blank_fields):
-        return
-
-    if not prompt_fix_or_continue(any_qc_failures, any_blank_fields):
-        return
-
-    for entry in entries:
+    for index, entry in enumerate(entries):
         row = entry["row"]
         qc_codes = (
-            row.get("Data Quality Fails", "").split(",")
+            [code for code in row.get("Data Quality Fails", "").split(",") if code]
             if row.get("Data Quality") == "Fail"
             else []
         )
@@ -661,25 +741,50 @@ def review_entries(entries: List[Dict[str, object]]) -> None:
 
         blank_fields = [
             field
-            for field, value in row.items()
-            if field
-            not in (
-                "Source File",
-                "Data Quality",
-                "Data Quality Fails",
-            )
-            and value in (None, "")
+            for field in REVIEWABLE_FIELDS
+            if row.get(field) in (None, "")
         ]
 
-        fields_to_review = list(dict.fromkeys(blank_fields + qc_fields))
+        qc_failure_count += len(qc_fields)
+        blank_field_count += len(blank_fields)
+
+        fields_to_review: List[str] = []
+        for field in blank_fields + qc_fields:
+            if field in REVIEWABLE_FIELDS and field not in fields_to_review:
+                fields_to_review.append(field)
 
         for field in fields_to_review:
-            image = entry["images"].get(field)
-            changed, new_value = prompt_field_edit(field, image, row.get(field))
-            if changed:
-                row[field] = parse_user_value(field, new_value)
+            review_items.append(
+                {
+                    "entry_index": index,
+                    "field": field,
+                    "file": row.get("Source File", f"Entry {index + 1}"),
+                    "value": row.get(field),
+                    "image": entry["images"].get(field),
+                }
+            )
 
-        refresh_data_quality(row)
+    if not review_items:
+        return
+
+    if not prompt_fix_or_continue(blank_field_count, qc_failure_count):
+        return
+
+    editor = PostProcessingEditor(review_items)
+    decisions, committed = editor.run()
+    if not committed:
+        return
+
+    updated_entries = set()
+    for (entry_index, field), user_value in decisions.items():
+        if user_value is PostProcessingEditor.KEEP_VALUE:
+            continue
+        row = entries[entry_index]["row"]
+        row[field] = parse_user_value(field, user_value)
+        updated_entries.add(entry_index)
+
+    for entry_index in updated_entries:
+        refresh_data_quality(entries[entry_index]["row"])
 
 
 class ProgressWindow:
