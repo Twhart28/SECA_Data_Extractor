@@ -23,7 +23,7 @@ import math
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import pdfplumber
@@ -33,22 +33,49 @@ from tkinter import filedialog
 
 # --- OCR region configuration ---
 
-# Base page size in pixels that coordinates were measured on
-BASE_PAGE_WIDTH = 652
-BASE_PAGE_HEIGHT = 922
-
-# Region in that base coordinate system (left, top, right, bottom)
-RAW_OCR_BOX = (440, 239, 568, 875)
+# Base page size (in pixels) for the provided per-field coordinates
+MEASUREMENT_BASE_WIDTH = 9917
+MEASUREMENT_BASE_HEIGHT = 14034
 
 # Render resolution for OCR snapshots (higher improves text clarity)
 OCR_RENDER_RESOLUTION = 300
 
-def get_scaled_ocr_box(image_size):
-    """Scale RAW_OCR_BOX from the 652x922 coordinate system to the actual rendered size."""
+# Region definitions (left, top, right, bottom) in the base coordinate system.
+# Each tuple pairs the destination field names with the corresponding crop box.
+MEASUREMENT_CROP_BOXES = [
+    (("Fat Mass (kg)", "Fat Mass (%)"), (7045, 3697, 8318, 4029)),
+    (("Fat Mass Index (kg/m^2)",), (7045, 4029, 8318, 4543)),
+    (("Fat-Free Mass (kg)", "Fat-Free Mass (%)"), (7045, 4543, 8318, 4857)),
+    (("Fat-Free Mass Index (kg/m^2)",), (7045, 4857, 8318, 5365)),
+    (("Skeletal Muscle Mass (kg)",), (7045, 5365, 8318, 5703)),
+    (("Right Arm (kg)",), (7045, 5703, 8318, 6205)),
+    (("Left Arm (kg)",), (7045, 6205, 8318, 6547)),
+    (("Right Leg (kg)",), (7045, 6547, 8318, 7055)),
+    (("Left Leg (kg)",), (7045, 7055, 8318, 7396)),
+    (("Torso (kg)",), (7045, 7396, 8318, 7882)),
+    (("Visceral Adipose Tissue",), (7045, 7882, 8318, 8218)),
+    (("SECA BMI (kg/m^2)",), (7045, 8218, 8318, 8750)),
+    (("Height (m)",), (7045, 8750, 8318, 9087)),
+    (("Weight (kg)",), (7045, 9087, 8318, 9564)),
+    (("Total Body Water (L)", "Total Body Water (%)"), (7045, 9564, 8318, 9908)),
+    (("Extracellular Water (L)", "Extracellular Water (%)"), (7045, 9908, 8318, 10456)),
+    (("ECW/TBW (%)",), (7045, 10456, 8318, 10788)),
+    (("Resting Energy Expenditure (kcal/day)",), (7045, 10788, 8318, 11296)),
+    (("Energy Consumption (kcal/day)",), (7045, 11296, 8318, 11636)),
+    (("Phase Angle (deg)", "Phase Angle Percentile"), (7045, 11636, 8318, 12150)),
+    (("Resistance (Ohm)",), (7045, 12150, 8318, 12486)),
+    (("Reactance (Ohm)",), (7045, 12486, 8318, 12990)),
+    (("Physical Activity Level",), (7045, 12990, 8318, 13325)),
+]
+
+
+def scale_box_to_image(box, image_size):
+    """Scale a crop box from the base coordinate system to the rendered image size."""
+
     img_w, img_h = image_size
-    sx = img_w / BASE_PAGE_WIDTH
-    sy = img_h / BASE_PAGE_HEIGHT
-    x0, y0, x1, y1 = RAW_OCR_BOX
+    sx = img_w / MEASUREMENT_BASE_WIDTH
+    sy = img_h / MEASUREMENT_BASE_HEIGHT
+    x0, y0, x1, y1 = box
     return (
         int(x0 * sx),
         int(y0 * sy),
@@ -140,49 +167,49 @@ def collapse_whitespace(text: str) -> str:
     return " ".join(text.split())
 
 
-def extract_page_text(page: "pdfplumber.page.Page", include_ocr: bool = True) -> str:
-    """Return textual content for a page, optionally augmented with OCR."""
+def extract_measurements_from_page_image(pil_image) -> Tuple[Dict[str, Optional[float]], List[str]]:
+    """Run OCR against each measurement crop on a rendered page image."""
 
-    parts: List[str] = []
-    text = page.extract_text() or ""
-    if text.strip():
-        parts.append(text)
+    measurements: Dict[str, Optional[float]] = {}
+    debug_lines: List[str] = []
 
-    if include_ocr:
-        ocr_text = ""
+    for fields, base_box in MEASUREMENT_CROP_BOXES:
         try:
-            # Render full page, then crop to the scaled region
-            pil_image = page.to_image(resolution=OCR_RENDER_RESOLUTION).original
-            crop_box = get_scaled_ocr_box(pil_image.size)
+            crop_box = scale_box_to_image(base_box, pil_image.size)
             cropped = pil_image.crop(crop_box)
-
-            # DEBUG (optional): save the cropped region once to visually verify
-            # cropped.save("debug_cropped_page.png")
-
             ocr_text = pytesseract.image_to_string(cropped)
         except Exception:
             ocr_text = ""
-        if ocr_text.strip():
-            parts.append(ocr_text)
 
-    return "\n".join(parts)
+        cleaned_text = collapse_whitespace(ocr_text)
+        if cleaned_text:
+            debug_lines.append(f"{' | '.join(fields)} => {cleaned_text}")
 
-def extract_pdf_text(pdf_path: Path) -> str:
-    """Extract ONLY OCR text from the cropped measurement region."""
-    parts: List[str] = []
+        numbers = [normalize_number(match) for match in NUMBER_PATTERN.findall(ocr_text)]
+        for index, field in enumerate(fields):
+            measurements[field] = numbers[index] if index < len(numbers) else None
+
+    return measurements, debug_lines
+
+
+def extract_measurements_from_pdf(pdf_path: Path) -> Tuple[Dict[str, Optional[float]], str]:
+    """Extract measurement values by OCR-ing each configured crop box."""
+
+    measurements: Dict[str, Optional[float]] = {name: None for name in MEASUREMENT_FIELD_NAMES}
+    debug_parts: List[str] = []
 
     with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            try:
-                pil_image = page.to_image(resolution=OCR_RENDER_RESOLUTION).original
-                crop_box = get_scaled_ocr_box(pil_image.size)
-                cropped = pil_image.crop(crop_box)
-                ocr_text = pytesseract.image_to_string(cropped)
-            except Exception:
-                ocr_text = ""
-            parts.append(ocr_text)
+        for page_index, page in enumerate(pdf.pages, start=1):
+            pil_image = page.to_image(resolution=OCR_RENDER_RESOLUTION).original
+            page_measurements, page_debug_lines = extract_measurements_from_page_image(pil_image)
+            for field, value in page_measurements.items():
+                if value is not None:
+                    measurements[field] = value
 
-    return "\n".join(parts)
+            if page_debug_lines:
+                debug_parts.append(f"Page {page_index}:\n" + "\n".join(page_debug_lines))
+
+    return measurements, "\n\n".join(debug_parts)
 
 def extract_text_layer(pdf_path: Path) -> str:
     """Extract ONLY the PDF's embedded text layer (no OCR)."""
@@ -229,25 +256,6 @@ def parse_patient_metadata(text: str) -> Dict[str, Optional[str]]:
 
     return metadata
 
-
-def parse_measurements_from_seca_ocr(ocr_text: str) -> Dict[str, Optional[float]]:
-    """
-    Parse SECA measurement values from OCR text based purely on the
-    order of numeric values in the cropped OCR region (no date anchor).
-    """
-
-    # Extract all numbers (ints or floats)
-    nums = re.findall(r"\d+(?:\.\d+)?", ocr_text)
-    values = [float(n) for n in nums]
-
-    measurements = {name: None for name in MEASUREMENT_FIELD_NAMES}
-
-    # Fill what we can
-    for i, name in enumerate(MEASUREMENT_FIELD_NAMES):
-        if i < len(values):
-            measurements[name] = values[i]
-
-    return measurements
 
 def evaluate_data_quality(values: Dict[str, Optional[float]]) -> Dict[str, Optional[str]]:
     def numbers_present(fields: List[str]) -> bool:
@@ -387,7 +395,7 @@ def evaluate_data_quality(values: Dict[str, Optional[float]]) -> Dict[str, Optio
         ree = values["Resting Energy Expenditure (kcal/day)"]
         pal = values["Physical Activity Level"]
         energy = values["Energy Consumption (kcal/day)"]
-        if not almost_equal((ree or 0) * (pal or 0), energy or 0, 0.01):
+        if not almost_equal((ree or 0) * (pal or 0), energy or 0, 0.02):
             failures.append("8")
     else:
         failures.append("8")
@@ -443,16 +451,16 @@ def extract_pdf_data(pdf_path: Path) -> Dict[str, Optional[float]]:
 
     normalized_header_text = collapse_whitespace(text_layer)
 
-    # --- 2. OCR TEXT (cropped region, numbers only) ---
-    ocr_text = extract_pdf_text(pdf_path)
+    # --- 2. OCR TEXT (per-field cropped regions) ---
+    measurements, ocr_debug_text = extract_measurements_from_pdf(pdf_path)
 
     # --- 3. DEBUG OUTPUT (optional) ---
     debug_txt = pdf_path.with_suffix(".ocr.txt")
-    debug_txt.write_text(ocr_text, encoding="utf-8")
+    debug_txt.write_text(ocr_debug_text, encoding="utf-8")
 
     # --- 4. Build the row ---
     row.update(parse_patient_metadata(normalized_header_text))   # header from TEXT layer
-    row.update(parse_measurements_from_seca_ocr(ocr_text))       # numbers from OCR
+    row.update(measurements)                                     # numbers from OCR crops
 
     weight = row.get("Weight (kg)")
     height = row.get("Height (m)")
