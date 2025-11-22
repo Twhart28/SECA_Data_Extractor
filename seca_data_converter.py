@@ -28,6 +28,7 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import pdfplumber
 import pytesseract
+from PIL import ImageTk
 from tkinter import Tk, messagebox
 from tkinter import filedialog
 from tkinter import ttk
@@ -168,11 +169,18 @@ def collapse_whitespace(text: str) -> str:
     return " ".join(text.split())
 
 
-def extract_measurements_from_page_image(pil_image) -> Tuple[Dict[str, Optional[float]], List[str]]:
-    """Run OCR against each measurement crop on a rendered page image."""
+def extract_measurements_from_page_image(
+    pil_image,
+) -> Tuple[Dict[str, Optional[float]], List[str], Dict[str, object]]:
+    """Run OCR against each measurement crop on a rendered page image.
+
+    Returns a tuple containing measurements, debug text, and the cropped
+    ``PIL.Image`` objects for each field.
+    """
 
     measurements: Dict[str, Optional[float]] = {}
     debug_lines: List[str] = []
+    field_images: Dict[str, object] = {}
 
     for fields, base_box in MEASUREMENT_CROP_BOXES:
         try:
@@ -180,6 +188,7 @@ def extract_measurements_from_page_image(pil_image) -> Tuple[Dict[str, Optional[
             cropped = pil_image.crop(crop_box)
             ocr_text = pytesseract.image_to_string(cropped)
         except Exception:
+            cropped = None
             ocr_text = ""
 
         cleaned_text = collapse_whitespace(ocr_text)
@@ -189,28 +198,40 @@ def extract_measurements_from_page_image(pil_image) -> Tuple[Dict[str, Optional[
         numbers = [normalize_number(match) for match in NUMBER_PATTERN.findall(ocr_text)]
         for index, field in enumerate(fields):
             measurements[field] = numbers[index] if index < len(numbers) else None
+            if field not in field_images and cropped is not None:
+                field_images[field] = cropped.copy()
 
-    return measurements, debug_lines
+    return measurements, debug_lines, field_images
 
 
-def extract_measurements_from_pdf(pdf_path: Path) -> Tuple[Dict[str, Optional[float]], str]:
+def extract_measurements_from_pdf(
+    pdf_path: Path,
+) -> Tuple[Dict[str, Optional[float]], str, Dict[str, object]]:
     """Extract measurement values by OCR-ing each configured crop box."""
 
     measurements: Dict[str, Optional[float]] = {name: None for name in MEASUREMENT_FIELD_NAMES}
     debug_parts: List[str] = []
+    field_images: Dict[str, object] = {}
 
     with pdfplumber.open(pdf_path) as pdf:
         for page_index, page in enumerate(pdf.pages, start=1):
             pil_image = page.to_image(resolution=OCR_RENDER_RESOLUTION).original
-            page_measurements, page_debug_lines = extract_measurements_from_page_image(pil_image)
+            (
+                page_measurements,
+                page_debug_lines,
+                page_field_images,
+            ) = extract_measurements_from_page_image(pil_image)
             for field, value in page_measurements.items():
                 if value is not None:
                     measurements[field] = value
+            for field, image in page_field_images.items():
+                if field not in field_images:
+                    field_images[field] = image
 
             if page_debug_lines:
                 debug_parts.append(f"Page {page_index}:\n" + "\n".join(page_debug_lines))
 
-    return measurements, "\n\n".join(debug_parts)
+    return measurements, "\n\n".join(debug_parts), field_images
 
 def extract_text_layer(pdf_path: Path) -> str:
     """Extract ONLY the PDF's embedded text layer (no OCR)."""
@@ -433,7 +454,58 @@ def evaluate_data_quality(values: Dict[str, Optional[float]]) -> Dict[str, Optio
     }
 
 
-def extract_pdf_data(pdf_path: Path) -> Dict[str, Optional[float]]:
+QC_FIELD_MAP = {
+    "1": ["Fat Mass (kg)", "Fat-Free Mass (kg)", "Weight (kg)"],
+    "2": ["Fat Mass (%)", "Fat-Free Mass (%)"],
+    "3": ["Fat Mass Index (kg/m^2)", "Fat-Free Mass Index (kg/m^2)", "SECA BMI (kg/m^2)"],
+    "4": [
+        "Right Arm (kg)",
+        "Left Arm (kg)",
+        "Right Leg (kg)",
+        "Left Leg (kg)",
+        "Torso (kg)",
+        "Skeletal Muscle Mass (kg)",
+    ],
+    "5": ["Weight (kg)", "Height (m)", "SECA BMI (kg/m^2)"],
+    "6": ["Extracellular Water (L)", "Total Body Water (L)", "ECW/TBW (%)"],
+    "7": ["Extracellular Water (%)", "Total Body Water (%)", "ECW/TBW (%)"],
+    "8": [
+        "Resting Energy Expenditure (kcal/day)",
+        "Physical Activity Level",
+        "Energy Consumption (kcal/day)",
+    ],
+    "9": ["Reactance (Ohm)", "Resistance (Ohm)", "Phase Angle (deg)"],
+    "10": ["Phase Angle Percentile"],
+}
+
+
+def recompute_calculated_fields(row: Dict[str, Optional[float]]) -> None:
+    weight = row.get("Weight (kg)")
+    height = row.get("Height (m)")
+    if height not in (None, 0):
+        row["Body Mass Index (kg/m^2)"] = (
+            (weight or 0) / ((height or 1) ** 2)
+        ) if weight is not None else None
+    else:
+        row["Body Mass Index (kg/m^2)"] = None
+
+
+def refresh_data_quality(row: Dict[str, Optional[float]]) -> None:
+    recompute_calculated_fields(row)
+    row.update(evaluate_data_quality(row))
+
+
+def parse_user_value(field_name: str, value: str) -> Optional[object]:
+    if field_name in MEASUREMENT_FIELD_NAMES + CALCULATED_FIELD_NAMES:
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        match = NUMBER_PATTERN.search(cleaned)
+        return normalize_number(match.group(0)) if match else None
+    return value if value.strip() else None
+
+
+def extract_pdf_data(pdf_path: Path) -> Tuple[Dict[str, Optional[float]], Dict[str, object]]:
 
     row: Dict[str, Optional[float]] = {field: None for field in OUTPUT_FIELD_ORDER}
     row["Source File"] = pdf_path.name
@@ -453,7 +525,7 @@ def extract_pdf_data(pdf_path: Path) -> Dict[str, Optional[float]]:
     normalized_header_text = collapse_whitespace(text_layer)
 
     # --- 2. OCR TEXT (per-field cropped regions) ---
-    measurements, ocr_debug_text = extract_measurements_from_pdf(pdf_path)
+    measurements, ocr_debug_text, field_images = extract_measurements_from_pdf(pdf_path)
 
     # --- 3. DEBUG OUTPUT (optional) ---
     debug_txt = pdf_path.with_suffix(".ocr.txt")
@@ -472,7 +544,7 @@ def extract_pdf_data(pdf_path: Path) -> Dict[str, Optional[float]]:
 
     row.update(evaluate_data_quality(row))
 
-    return row
+    return row, field_images
 
 def select_pdf_files() -> List[Path]:
     root = Tk()
@@ -500,6 +572,114 @@ def show_message(title: str, message: str) -> None:
     root.withdraw()
     messagebox.showinfo(title, message)
     root.destroy()
+
+
+def prompt_fix_or_continue(has_qc_failures: bool, has_blank_fields: bool) -> bool:
+    issues = []
+    if has_qc_failures:
+        issues.append("quality control failures")
+    if has_blank_fields:
+        issues.append("blank fields")
+    issue_text = " and ".join(issues)
+    root = Tk()
+    root.withdraw()
+    response = messagebox.askyesno(
+        "Review required",
+        f"Detected {issue_text}.\nWould you like to review and correct the data before exporting?",
+        icon="warning",
+    )
+    root.destroy()
+    return response
+
+
+def prompt_field_edit(field_name: str, image, current_value) -> Tuple[bool, str]:
+    result = {"changed": False, "value": "" if current_value is None else str(current_value)}
+    window = Tk()
+    window.title(f"Review: {field_name}")
+
+    label = ttk.Label(window, text=f"Update value for '{field_name}'")
+    label.pack(padx=10, pady=(10, 5))
+
+    if image is not None:
+        preview = image.copy()
+        preview.thumbnail((800, 600))
+        photo = ImageTk.PhotoImage(preview)
+        image_label = ttk.Label(window, image=photo)
+        image_label.image = photo  # keep reference
+        image_label.pack(padx=10, pady=5)
+
+    entry = ttk.Entry(window, width=50)
+    entry.insert(0, result["value"])
+    entry.pack(padx=10, pady=(5, 10))
+
+    def save_and_close():
+        result["value"] = entry.get()
+        result["changed"] = True
+        window.destroy()
+
+    def skip_and_close():
+        window.destroy()
+
+    button_frame = ttk.Frame(window)
+    button_frame.pack(pady=(0, 10))
+    save_button = ttk.Button(button_frame, text="Save", command=save_and_close)
+    save_button.pack(side="left", padx=5)
+    skip_button = ttk.Button(button_frame, text="Keep current", command=skip_and_close)
+    skip_button.pack(side="left", padx=5)
+
+    window.mainloop()
+    return result["changed"], result["value"]
+
+
+def review_entries(entries: List[Dict[str, object]]) -> None:
+    any_qc_failures = any(entry["row"].get("Data Quality") == "Fail" for entry in entries)
+    any_blank_fields = any(
+        any(
+            value in (None, "")
+            for field, value in entry["row"].items()
+            if field not in ("Source File", "Data Quality", "Data Quality Fails")
+        )
+        for entry in entries
+    )
+
+    if not (any_qc_failures or any_blank_fields):
+        return
+
+    if not prompt_fix_or_continue(any_qc_failures, any_blank_fields):
+        return
+
+    for entry in entries:
+        row = entry["row"]
+        qc_codes = (
+            row.get("Data Quality Fails", "").split(",")
+            if row.get("Data Quality") == "Fail"
+            else []
+        )
+        qc_fields: List[str] = []
+        for code in qc_codes:
+            qc_fields.extend(QC_FIELD_MAP.get(code, []))
+
+        blank_fields = [
+            field
+            for field, value in row.items()
+            if field
+            not in (
+                "Source File",
+                "Data Quality",
+                "Data Quality Fails",
+            )
+            and value in (None, "")
+        ]
+
+        fields_to_review = list(dict.fromkeys(blank_fields + qc_fields))
+
+        for field in fields_to_review:
+            image = entry["images"].get(field)
+            changed, new_value = prompt_field_edit(field, image, row.get(field))
+            if changed:
+                row[field] = parse_user_value(field, new_value)
+
+        refresh_data_quality(row)
 
 
 class ProgressWindow:
@@ -540,13 +720,14 @@ def main() -> None:
         show_message("SECA Data Converter", "No download folder was selected.")
         return
 
-    rows = []
+    parsed_entries: List[Dict[str, object]] = []
     progress = ProgressWindow(total_files=len(pdf_files))
     parsing_error: Optional[Tuple[Path, Exception]] = None
 
     for index, pdf in enumerate(pdf_files, start=1):
         try:
-            rows.append(extract_pdf_data(pdf))
+            row, images = extract_pdf_data(pdf)
+            parsed_entries.append({"row": row, "images": images})
         except Exception as exc:  # pragma: no cover - user feedback path
             parsing_error = (pdf, exc)
             break
@@ -563,6 +744,9 @@ def main() -> None:
         )
         return
 
+    review_entries(parsed_entries)
+
+    rows = [entry["row"] for entry in parsed_entries]
     df = pd.DataFrame(rows, columns=OUTPUT_FIELD_ORDER)
     df.to_excel(output_path, index=False)
     show_message(
