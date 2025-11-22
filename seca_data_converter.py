@@ -520,7 +520,7 @@ def extract_pdf_data(pdf_path: Path) -> Tuple[Dict[str, Optional[float]], Dict[s
                 "Data Quality Fails": "Not recognized as a SECA data export",
             }
         )
-        return row
+        return row, {}
 
     normalized_header_text = collapse_whitespace(text_layer)
 
