@@ -863,7 +863,24 @@ def main() -> None:
 
     rows = [entry["row"] for entry in parsed_entries]
     df = pd.DataFrame(rows, columns=OUTPUT_FIELD_ORDER)
-    df.to_excel(output_path, index=False)
+
+    try:
+        df.to_excel(output_path, index=False)
+    except ImportError as exc:  # pragma: no cover - user feedback path
+        show_message(
+            "Missing dependency",
+            "Could not export to Excel because the 'openpyxl' package is not installed.\n"
+            "Please install it and try again.\n\n"
+            f"Original error: {exc}",
+        )
+        return
+    except Exception as exc:  # pragma: no cover - user feedback path
+        show_message(
+            "Export failed",
+            f"Could not save the Excel file.\nError: {exc}",
+        )
+        return
+
     show_message(
         "SECA Data Converter",
         f"Successfully saved data for {len(rows)} file(s) to:\n{output_path}",
