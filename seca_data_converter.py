@@ -614,8 +614,6 @@ def prompt_fix_or_continue(blank_count: int, qc_failure_count: int) -> bool:
 
 
 class PostProcessingEditor:
-    KEEP_VALUE = object()
-
     def __init__(self, review_items: List[Dict[str, object]]):
         self.review_items = review_items
         self.current_index = 0
@@ -652,16 +650,17 @@ class PostProcessingEditor:
 
         button_frame = ttk.Frame(self.root)
         button_frame.pack(pady=(0, 10))
-        self.keep_button = ttk.Button(
-            button_frame, text="Keep OCR value", command=self.keep_value
-        )
-        self.keep_button.pack(side="left", padx=5)
+        self.back_button = ttk.Button(button_frame, text="Back", command=self.go_back)
+        self.back_button.pack(side="left", padx=5)
         self.next_button = ttk.Button(button_frame, text="Next", command=self.save_and_next)
         self.next_button.pack(side="left", padx=5)
         self.save_button = ttk.Button(
             button_frame, text="Save all changes", command=self.commit_changes, state="disabled"
         )
         self.save_button.pack(side="left", padx=5)
+
+        self.root.bind("<Left>", self.go_back)
+        self.root.bind("<Right>", self.save_and_next)
 
         self.show_current_item()
 
@@ -670,22 +669,20 @@ class PostProcessingEditor:
             return "blank"
         return str(value)
 
-    def keep_value(self) -> None:
-        if self.current_index >= len(self.review_items):
-            return
-
-        item = self.review_items[self.current_index]
-        self.decisions[(item["entry_index"], item["field"])] = self.KEEP_VALUE
-        self.current_index += 1
-        self.show_current_item()
-
-    def save_and_next(self) -> None:
+    def save_and_next(self, event=None) -> None:
         if self.current_index >= len(self.review_items):
             return
 
         item = self.review_items[self.current_index]
         self.decisions[(item["entry_index"], item["field"])] = self.entry_var.get()
         self.current_index += 1
+        self.show_current_item()
+
+    def go_back(self, event=None) -> None:
+        if self.current_index <= 0:
+            return
+
+        self.current_index -= 1
         self.show_current_item()
 
     def commit_changes(self) -> None:
@@ -700,8 +697,8 @@ class PostProcessingEditor:
             self.original_value_var.set("")
             self.entry_var.set("")
             self.entry.state(["disabled"])
-            self.keep_button.state(["disabled"])
             self.next_button.state(["disabled"])
+            self.back_button.state(["disabled"])
             self.image_label.config(image="", text="")
             self.current_photo = None
             self.save_button.state(["!disabled"])
@@ -718,6 +715,9 @@ class PostProcessingEditor:
             f"OCR detected value: {self.format_value(item.get('value'))}"
         )
 
+        saved_value = self.decisions.get((item["entry_index"], item["field"]))
+        entry_value = saved_value if saved_value is not None else item.get("value")
+
         if item.get("image") is not None:
             preview = item["image"].copy()
             preview.thumbnail((800, 600))
@@ -732,10 +732,13 @@ class PostProcessingEditor:
             self.image_label.image = None
 
         self.entry.state(["!disabled"])
-        self.keep_button.state(["!disabled"])
         self.next_button.state(["!disabled"])
+        if self.current_index == 0:
+            self.back_button.state(["disabled"])
+        else:
+            self.back_button.state(["!disabled"])
         self.save_button.state(["disabled"])
-        self.entry_var.set(self.format_value(item.get("value")))
+        self.entry_var.set(self.format_value(entry_value))
 
     def run(self) -> Tuple[Dict[Tuple[int, str], object], bool]:
         self.root.mainloop()
@@ -804,8 +807,6 @@ def review_entries(entries: List[Dict[str, object]]) -> None:
 
     updated_entries = set()
     for (entry_index, field), user_value in decisions.items():
-        if user_value is PostProcessingEditor.KEEP_VALUE:
-            continue
         row = entries[entry_index]["row"]
         row[field] = parse_user_value(field, user_value)
         updated_entries.add(entry_index)
