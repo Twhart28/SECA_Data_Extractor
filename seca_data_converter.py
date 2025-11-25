@@ -704,8 +704,10 @@ class PostProcessingEditor:
         if item.get("image") is not None:
             preview = item["image"].copy()
             preview.thumbnail((800, 600))
-            self.current_photo = ImageTk.PhotoImage(preview)
+            # Bind the image explicitly to this editor's root to avoid cross-root issues
+            self.current_photo = ImageTk.PhotoImage(preview, master=self.root)
             self.image_label.config(image=self.current_photo, text="")
+            # Keep a reference so it's not garbage-collected
             self.image_label.image = self.current_photo
         else:
             self.image_label.config(text="No OCR snapshot available", image="")
