@@ -1,4 +1,4 @@
-#!C:\Users\Thoma\Documents\GitHub\SECA_Data_Converter\.venv\Scripts\python.exe
+#!c:\Users\Thoma\OneDrive\Documents\GitHub\SECA_Data_Converter\.venv\Scripts\python.exe
 """A command line tool for extracting text and images from PDF and
 output it to plain text, html, xml or tags.
 """
