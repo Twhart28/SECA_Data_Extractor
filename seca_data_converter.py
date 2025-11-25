@@ -551,20 +551,37 @@ def extract_pdf_data(pdf_path: Path) -> Tuple[Dict[str, Optional[float]], Dict[s
 def select_pdf_files() -> List[Path]:
     root = Tk()
     root.withdraw()
-    file_paths = filedialog.askopenfilenames(
-        title="Select SECA PDF files", filetypes=[("PDF files", "*.pdf")]
-    )
-    root.update()
+
+    try:
+        file_paths = filedialog.askopenfilenames(
+            title="Select SECA PDF files", filetypes=[("PDF files", "*.pdf")]
+        )
+        root.update()
+    except KeyboardInterrupt:
+        # Allow users to cancel with Ctrl+C without seeing a traceback
+        return []
+    finally:
+        root.destroy()
+
     return [Path(path) for path in file_paths]
 
 
 def select_output_path() -> Optional[Path]:
     root = Tk()
     root.withdraw()
-    directory = filedialog.askdirectory(title="Select download folder")
-    root.update()
+
+    try:
+        directory = filedialog.askdirectory(title="Select download folder")
+        root.update()
+    except KeyboardInterrupt:
+        # Allow users to cancel with Ctrl+C without seeing a traceback
+        return None
+    finally:
+        root.destroy()
+
     if not directory:
         return None
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return Path(directory) / f"seca_measurements_{timestamp}.xlsx"
 
