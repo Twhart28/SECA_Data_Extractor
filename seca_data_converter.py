@@ -730,6 +730,14 @@ def review_entries(entries: List[Dict[str, object]]) -> None:
 
     for index, entry in enumerate(entries):
         row = entry["row"]
+
+        # Skip files that were not recognized as SECA exports; they have no OCR
+        # snapshots to review and should not trigger blank-field prompts.
+        if (
+            row.get("Data Quality") == "Fail"
+            and row.get("Data Quality Fails") == "Not recognized as a SECA data export"
+        ):
+            continue
         qc_codes = (
             [code for code in row.get("Data Quality Fails", "").split(",") if code]
             if row.get("Data Quality") == "Fail"
