@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='SECA_Data_Converter',
+    name='seca_data_converter',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
