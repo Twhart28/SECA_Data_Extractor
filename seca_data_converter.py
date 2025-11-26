@@ -507,7 +507,9 @@ def parse_user_value(field_name: str, value: str) -> Optional[object]:
     return value if value.strip() else None
 
 
-def extract_pdf_data(pdf_path: Path) -> Tuple[Dict[str, Optional[float]], Dict[str, object]]:
+def extract_pdf_data(
+    pdf_path: Path, save_ocr_txt: bool = True
+) -> Tuple[Dict[str, Optional[float]], Dict[str, object]]:
 
     row: Dict[str, Optional[float]] = {field: None for field in OUTPUT_FIELD_ORDER}
     row["Source File"] = pdf_path.name
@@ -530,8 +532,9 @@ def extract_pdf_data(pdf_path: Path) -> Tuple[Dict[str, Optional[float]], Dict[s
     measurements, ocr_debug_text, field_images = extract_measurements_from_pdf(pdf_path)
 
     # --- 3. DEBUG OUTPUT (optional) ---
-    debug_txt = pdf_path.with_suffix(".ocr.txt")
-    debug_txt.write_text(ocr_debug_text, encoding="utf-8")
+    if save_ocr_txt:
+        debug_txt = pdf_path.with_suffix(".ocr.txt")
+        debug_txt.write_text(ocr_debug_text, encoding="utf-8")
 
     # --- 4. Build the row ---
     row.update(parse_patient_metadata(normalized_header_text))   # header from TEXT layer
@@ -591,6 +594,22 @@ def show_message(title: str, message: str) -> None:
     root.withdraw()
     messagebox.showinfo(title, message)
     root.destroy()
+
+
+def prompt_save_ocr_text_files() -> bool:
+    """Ask the user whether to save OCR debug text files alongside each PDF."""
+
+    root = Tk()
+    root.withdraw()
+    try:
+        response = messagebox.askyesno(
+            "Save OCR text files",
+            "Would you like to save OCR debug text files (.ocr.txt) next to each PDF?",
+        )
+    finally:
+        root.destroy()
+
+    return bool(response)
 
 
 def prompt_fix_or_continue(blank_count: int, qc_failure_count: int) -> bool:
@@ -848,6 +867,8 @@ def main() -> None:
         show_message("SECA Data Converter", "No PDF files were selected.")
         return
 
+    save_ocr_txt = prompt_save_ocr_text_files()
+
     output_path = select_output_path()
     if output_path is None:
         show_message("SECA Data Converter", "No download folder was selected.")
@@ -859,7 +880,7 @@ def main() -> None:
 
     for index, pdf in enumerate(pdf_files, start=1):
         try:
-            row, images = extract_pdf_data(pdf)
+            row, images = extract_pdf_data(pdf, save_ocr_txt=save_ocr_txt)
             parsed_entries.append({"row": row, "images": images})
         except Exception as exc:  # pragma: no cover - user feedback path
             parsing_error = (pdf, exc)
