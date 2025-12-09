@@ -659,9 +659,13 @@ def center_text_cells(output_path: Path) -> None:
 
     worksheet = workbook[sheet_name]
     centered = Alignment(horizontal="center", vertical="center")
+    skip_columns = {1, 2, 3, 9}
     for row in worksheet.iter_rows(min_row=2):
         for cell in row:
-            if cell.col_idx <= 2:
+            if cell.col_idx in skip_columns:
+                continue
+            if 10 <= cell.col_idx <= 38:
+                cell.alignment = centered
                 continue
             if isinstance(cell.value, str) and cell.value != "":
                 cell.alignment = centered
@@ -772,6 +776,10 @@ class PostProcessingEditor:
         self.entry = ttk.Entry(self.root, width=50, textvariable=self.entry_var)
         self.entry.pack(padx=10, pady=(0, 10))
 
+        self.entry.bind("<Tab>", self.save_and_next)
+        self.entry.bind("<ISO_Left_Tab>", self.go_back)
+        self.entry.bind("<Shift-Tab>", self.go_back)
+
         button_frame = ttk.Frame(self.root)
         button_frame.pack(pady=(0, 10))
         self.back_button = ttk.Button(button_frame, text="Back", command=self.go_back)
@@ -802,6 +810,8 @@ class PostProcessingEditor:
         self.decisions[(item["entry_index"], item["field"])] = self.entry_var.get()
         self.current_index += 1
         self.show_current_item()
+        if event is not None:
+            return "break"
 
     def go_back(self, event=None) -> None:
         if self.current_index <= 0:
@@ -809,6 +819,8 @@ class PostProcessingEditor:
 
         self.current_index -= 1
         self.show_current_item()
+        if event is not None:
+            return "break"
 
     def commit_changes(self) -> None:
         self.committed = True
@@ -864,6 +876,8 @@ class PostProcessingEditor:
             self.back_button.state(["!disabled"])
         self.save_button.state(["disabled"])
         self.entry_var.set(self.format_value(entry_value))
+        self.entry.focus_set()
+        self.entry.selection_range(0, "end")
 
     def run(self) -> Tuple[Dict[Tuple[int, str], object], bool]:
         self.root.mainloop()
