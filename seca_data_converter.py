@@ -162,6 +162,9 @@ OUTPUT_FIELD_ORDER = output_field_order()
 
 APP_ICON = Path(__file__).with_name("App_Logo.ico")
 
+# Toggle saving OCR debug text files alongside each PDF (1 = on, 0 = off)
+DEBUG_SAVE_OCR_TXT = 0
+
 
 def apply_window_icon(window) -> None:
     try:
@@ -539,7 +542,7 @@ def parse_user_value(field_name: str, value: str) -> Optional[object]:
 
 
 def extract_pdf_data(
-    pdf_path: Path, save_ocr_txt: bool = True
+    pdf_path: Path, save_ocr_txt: bool = bool(DEBUG_SAVE_OCR_TXT)
 ) -> Tuple[Dict[str, Optional[float]], Dict[str, object]]:
 
     row: Dict[str, Optional[float]] = {field: None for field in OUTPUT_FIELD_ORDER}
@@ -602,8 +605,16 @@ def select_pdf_files() -> List[Path]:
 def select_output_path() -> Optional[Path]:
     root = create_hidden_root()
 
+    timestamp = datetime.now().strftime("%m-%d-%y %H-%M")
+    default_filename = f"Seca Export ({timestamp}).xlsx"
+
     try:
-        directory = filedialog.askdirectory(title="Select download folder")
+        file_path = filedialog.asksaveasfilename(
+            title="Select download location",
+            defaultextension=".xlsx",
+            initialfile=default_filename,
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+        )
         root.update()
     except KeyboardInterrupt:
         # Allow users to cancel with Ctrl+C without seeing a traceback
@@ -611,32 +622,16 @@ def select_output_path() -> Optional[Path]:
     finally:
         root.destroy()
 
-    if not directory:
+    if not file_path:
         return None
 
-    timestamp = datetime.now().strftime("%m-%d-%y %H-%M")
-    return Path(directory) / f"Seca Export ({timestamp}).xlsx"
+    return Path(file_path)
 
 
 def show_message(title: str, message: str) -> None:
     root = create_hidden_root()
     messagebox.showinfo(title, message)
     root.destroy()
-
-
-def prompt_save_ocr_text_files() -> bool:
-    """Ask the user whether to save OCR debug text files alongside each PDF."""
-
-    root = create_hidden_root()
-    try:
-        response = messagebox.askyesno(
-            "Save OCR text files",
-            "Would you like to save OCR debug text files (.ocr.txt) next to each PDF?",
-        )
-    finally:
-        root.destroy()
-
-    return bool(response)
 
 
 def prompt_fix_or_continue(blank_count: int, qc_failure_count: int) -> bool:
@@ -897,11 +892,11 @@ def main() -> None:
         show_message("SECA Data Converter", "No PDF files were selected.")
         return
 
-    save_ocr_txt = prompt_save_ocr_text_files()
+    save_ocr_txt = bool(DEBUG_SAVE_OCR_TXT)
 
     output_path = select_output_path()
     if output_path is None:
-        show_message("SECA Data Converter", "No download folder was selected.")
+        show_message("SECA Data Converter", "No download location was selected.")
         return
 
     parsed_entries: List[Dict[str, object]] = []
