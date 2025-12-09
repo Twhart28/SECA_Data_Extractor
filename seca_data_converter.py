@@ -28,6 +28,8 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import pdfplumber
 import pytesseract
+from openpyxl import load_workbook
+from openpyxl.styles import Alignment
 from PIL import ImageTk
 from tkinter import Tk, messagebox
 from tkinter import filedialog
@@ -98,7 +100,7 @@ PATIENT_FIELDS = {
 }
 
 PATIENT_METADATA_FIELDS = [
-    "Patient ID",
+    "Scanned ID",
     "Sex",
     "Age",
     "Collection Date",
@@ -151,6 +153,7 @@ def output_field_order() -> List[str]:
             order.extend(CALCULATED_FIELD_NAMES)
     return [
         "Source File",
+        "Patient ID",
         *PATIENT_METADATA_FIELDS,
         "Data Quality",
         "Data Quality Fails",
@@ -278,9 +281,59 @@ def extract_text_layer(pdf_path: Path) -> str:
             parts.append(text)
     return "\n".join(parts)
 
+
+def normalize_collection_date(raw_date: Optional[str]) -> Optional[str]:
+    if not raw_date:
+        return None
+
+    cleaned = raw_date.strip()
+    parts = re.split(r"[./-]", cleaned)
+    if len(parts) == 3:
+        try:
+            month, day, year = (int(part) for part in parts)
+            if year < 100:
+                year += 2000 if year < 50 else 1900
+            normalized = datetime(year, month, day)
+            return normalized.strftime("%m/%d/%y")
+        except ValueError:
+            pass
+
+    return cleaned or None
+
+
+def normalize_collection_time(raw_time: Optional[str]) -> Optional[str]:
+    if not raw_time:
+        return None
+
+    match = re.match(r"\s*(\d{1,2}):(\d{2})(?:\s*(AM|PM))?\s*$", raw_time, re.IGNORECASE)
+    if not match:
+        return raw_time.strip() or None
+
+    hour_text, minute_text, meridiem = match.groups()
+    try:
+        hour = int(hour_text)
+        minute = int(minute_text)
+        if not 0 <= minute < 60:
+            raise ValueError("Minute out of range")
+
+        if meridiem:
+            meridiem = meridiem.upper()
+            if hour == 12:
+                hour = 0
+            if meridiem == "PM":
+                hour += 12
+
+        if not 0 <= hour < 24:
+            raise ValueError("Hour out of range")
+
+        return f"{hour:02d}:{minute:02d}"
+    except ValueError:
+        return raw_time.strip() or None
+
+
 def parse_patient_metadata(text: str) -> Dict[str, Optional[str]]:
     metadata: Dict[str, Optional[str]] = {
-        "Patient ID": None,
+        "Scanned ID": None,
         "Sex": None,
         "Age": None,
         "Collection Date": None,
@@ -289,7 +342,7 @@ def parse_patient_metadata(text: str) -> Dict[str, Optional[str]]:
 
     patient_id_match = re.search(r"ID\s*[:\-]?\s*(.*?)\s+Name", text, re.IGNORECASE)
     if patient_id_match:
-        metadata["Patient ID"] = patient_id_match.group(1).strip()
+        metadata["Scanned ID"] = patient_id_match.group(1).strip()
 
     for field, pattern in PATIENT_FIELDS.items():
         match = pattern.search(text)
@@ -306,11 +359,11 @@ def parse_patient_metadata(text: str) -> Dict[str, Optional[str]]:
 
     date_match = re.search(r"(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})", text)
     if date_match:
-        metadata["Collection Date"] = date_match.group(1)
+        metadata["Collection Date"] = normalize_collection_date(date_match.group(1))
 
     time_match = re.search(r"(\d{1,2}:\d{2}\s?(?:AM|PM)?)", text, re.IGNORECASE)
     if time_match:
-        metadata["Collection Time"] = time_match.group(1)
+        metadata["Collection Time"] = normalize_collection_time(time_match.group(1))
 
     return metadata
 
@@ -541,14 +594,26 @@ def parse_user_value(field_name: str, value: str) -> Optional[object]:
     return value if value.strip() else None
 
 
+def extract_patient_id_from_filename(pdf_path: Path) -> Optional[str]:
+    stem = pdf_path.stem
+    patient_chars: List[str] = []
+    for char in stem:
+        if char in (" ", "_"):
+            break
+        patient_chars.append(char)
+    patient_id = "".join(patient_chars).strip()
+    return patient_id or None
+
+
 def extract_pdf_data(
     pdf_path: Path, save_ocr_txt: bool = bool(DEBUG_SAVE_OCR_TXT)
 ) -> Tuple[Dict[str, Optional[float]], Dict[str, object]]:
 
     row: Dict[str, Optional[float]] = {field: None for field in OUTPUT_FIELD_ORDER}
     row["Source File"] = pdf_path.name
+    row["Patient ID"] = extract_patient_id_from_filename(pdf_path)
 
-    # --- 1. HEADER TEXT (for Patient ID, Sex, Age, Date, Time) ---
+    # --- 1. HEADER TEXT (for Scanned ID, Sex, Age, Date, Time) ---
     text_layer = extract_text_layer(pdf_path)
     keyword_text = text_layer.lower()
     if "patient data" not in keyword_text or "single measurement" not in keyword_text:
@@ -584,6 +649,24 @@ def extract_pdf_data(
     row.update(evaluate_data_quality(row))
 
     return row, field_images
+
+
+def center_text_cells(output_path: Path) -> None:
+    workbook = load_workbook(output_path)
+    sheet_name = "All Data"
+    if sheet_name not in workbook.sheetnames:
+        return
+
+    worksheet = workbook[sheet_name]
+    centered = Alignment(horizontal="center", vertical="center")
+    for row in worksheet.iter_rows(min_row=2):
+        for cell in row:
+            if cell.col_idx <= 2:
+                continue
+            if isinstance(cell.value, str) and cell.value != "":
+                cell.alignment = centered
+
+    workbook.save(output_path)
 
 def select_pdf_files() -> List[Path]:
     root = create_hidden_root()
@@ -937,6 +1020,7 @@ def main() -> None:
 
     try:
         df.to_excel(output_path, index=False, sheet_name="All Data")
+        center_text_cells(output_path)
     except ImportError as exc:  # pragma: no cover - user feedback path
         show_message(
             "Missing dependency",
