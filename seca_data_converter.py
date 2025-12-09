@@ -160,6 +160,37 @@ def output_field_order() -> List[str]:
 
 OUTPUT_FIELD_ORDER = output_field_order()
 
+APP_ICON = Path(__file__).with_name("App_Logo.ico")
+
+
+def apply_window_icon(window) -> None:
+    try:
+        window.iconbitmap(str(APP_ICON))
+    except Exception:
+        # Fallback silently if the icon is unavailable or the platform does not support it
+        pass
+
+
+def center_window(window) -> None:
+    window.update_idletasks()
+    try:
+        window.tk.call("tk::PlaceWindow", window._w, "center")
+    except Exception:
+        # Manual centering fallback
+        width = window.winfo_width() or window.winfo_reqwidth()
+        height = window.winfo_height() or window.winfo_reqheight()
+        x = int((window.winfo_screenwidth() - width) / 2)
+        y = int((window.winfo_screenheight() - height) / 2)
+        window.geometry(f"+{x}+{y}")
+
+
+def create_hidden_root() -> Tk:
+    root = Tk()
+    apply_window_icon(root)
+    center_window(root)
+    root.withdraw()
+    return root
+
 def normalize_number(token: str) -> float:
     token = token.replace(",", ".")
     return float(token)
@@ -552,8 +583,7 @@ def extract_pdf_data(
     return row, field_images
 
 def select_pdf_files() -> List[Path]:
-    root = Tk()
-    root.withdraw()
+    root = create_hidden_root()
 
     try:
         file_paths = filedialog.askopenfilenames(
@@ -570,8 +600,7 @@ def select_pdf_files() -> List[Path]:
 
 
 def select_output_path() -> Optional[Path]:
-    root = Tk()
-    root.withdraw()
+    root = create_hidden_root()
 
     try:
         directory = filedialog.askdirectory(title="Select download folder")
@@ -585,13 +614,12 @@ def select_output_path() -> Optional[Path]:
     if not directory:
         return None
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return Path(directory) / f"seca_measurements_{timestamp}.xlsx"
+    timestamp = datetime.now().strftime("%m-%d-%y %H-%M")
+    return Path(directory) / f"Seca Export ({timestamp}).xlsx"
 
 
 def show_message(title: str, message: str) -> None:
-    root = Tk()
-    root.withdraw()
+    root = create_hidden_root()
     messagebox.showinfo(title, message)
     root.destroy()
 
@@ -599,8 +627,7 @@ def show_message(title: str, message: str) -> None:
 def prompt_save_ocr_text_files() -> bool:
     """Ask the user whether to save OCR debug text files alongside each PDF."""
 
-    root = Tk()
-    root.withdraw()
+    root = create_hidden_root()
     try:
         response = messagebox.askyesno(
             "Save OCR text files",
@@ -621,8 +648,7 @@ def prompt_fix_or_continue(blank_count: int, qc_failure_count: int) -> bool:
 
     summary = " and ".join(parts) if parts else "detected issues"
 
-    root = Tk()
-    root.withdraw()
+    root = create_hidden_root()
     response = messagebox.askyesno(
         "Review required",
         f"Detected {summary}.\nWould you like to review and correct the data before exporting?",
@@ -642,6 +668,7 @@ class PostProcessingEditor:
 
         self.root = Tk()
         self.root.title("Review OCR fields")
+        apply_window_icon(self.root)
 
         self.progress_label = ttk.Label(self.root, text="")
         self.progress_label.pack(padx=10, pady=(10, 5))
@@ -682,6 +709,7 @@ class PostProcessingEditor:
         self.root.bind("<Right>", self.save_and_next)
 
         self.show_current_item()
+        center_window(self.root)
 
     def format_value(self, value: Optional[object]) -> str:
         if value in (None, ""):
@@ -838,6 +866,7 @@ class ProgressWindow:
     def __init__(self, total_files: int):
         self.root = Tk()
         self.root.title("Processing SECA files")
+        apply_window_icon(self.root)
         self.total_files = total_files
 
         self.label = ttk.Label(self.root, text="Preparing to process files…")
@@ -848,6 +877,7 @@ class ProgressWindow:
         )
         self.progress.pack(padx=20, pady=(0, 20))
 
+        center_window(self.root)
         self.root.update()
 
     def update_progress(self, current_index: int, filename: str) -> None:
@@ -903,8 +933,15 @@ def main() -> None:
     rows = [entry["row"] for entry in parsed_entries]
     df = pd.DataFrame(rows, columns=OUTPUT_FIELD_ORDER)
 
+    df["__sort_index"] = range(len(df))
+    df["__unrecognized"] = (
+        df["Data Quality Fails"] == "Not recognized as a SECA data export"
+    )
+    df = df.sort_values(by=["__unrecognized", "__sort_index"], kind="stable")
+    df = df.drop(columns=["__sort_index", "__unrecognized"])
+
     try:
-        df.to_excel(output_path, index=False)
+        df.to_excel(output_path, index=False, sheet_name="All Data")
     except ImportError as exc:  # pragma: no cover - user feedback path
         show_message(
             "Missing dependency",
