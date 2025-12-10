@@ -5,7 +5,7 @@ a = Analysis(
     ['seca_data_converter.py'],
     pathex=[],
     binaries=[],
-    datas=[('App_Logo.ico', '.'), ('startup_image.png', '.')],
+    datas=[('startup_image.png', '.'), ('README.md', '.'), ('App_Logo.ico', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
