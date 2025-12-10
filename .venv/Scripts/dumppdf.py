@@ -1,4 +1,4 @@
-#!c:\Users\Thoma\Documents\GitHub\SECA_Data_Converter\.venv\Scripts\python.exe
+#!C:\Users\Thoma\OneDrive\Documents\GitHub\SECA_Data_Converter\.venv\Scripts\python.exe
 """Extract pdf structure in XML format"""
 
 import logging

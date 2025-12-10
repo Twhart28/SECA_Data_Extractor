@@ -30,10 +30,10 @@ import pdfplumber
 import pytesseract
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
-from PIL import ImageTk
-from tkinter import Tk, messagebox
+from PIL import Image, ImageTk
+from tkinter import Tk, Toplevel, messagebox
 from tkinter import filedialog
-from tkinter import ttk, StringVar
+from tkinter import ttk, StringVar, Text
 
 # --- OCR region configuration ---
 
@@ -196,6 +196,74 @@ def create_hidden_root() -> Tk:
     center_window(root)
     root.withdraw()
     return root
+
+
+def show_readme_popup(parent: Tk) -> None:
+    readme_path = Path(__file__).with_name("README.md")
+    content = readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
+
+    popup = Toplevel(parent)
+    popup.title("Read Me")
+    apply_window_icon(popup)
+
+    text_widget = Text(popup, wrap="word", width=80, height=30)
+    text_widget.insert("1.0", content)
+    text_widget.configure(state="disabled")
+    text_widget.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=10)
+
+    scrollbar = ttk.Scrollbar(popup, orient="vertical", command=text_widget.yview)
+    text_widget.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side="right", fill="y", pady=10, padx=(0, 10))
+
+    close_button = ttk.Button(popup, text="Close", command=popup.destroy)
+    close_button.pack(pady=(0, 10))
+
+    center_window(popup)
+
+
+def load_startup_image() -> Optional[ImageTk.PhotoImage]:
+    image_path = Path(__file__).with_name("startup_image.png")
+    if not image_path.exists():
+        return None
+
+    try:
+        image = Image.open(image_path)
+        return ImageTk.PhotoImage(image)
+    except Exception:
+        return None
+
+
+def show_startup_screen() -> bool:
+    proceed = {"value": False}
+    root = Tk()
+    root.title("SECA Data Converter")
+    apply_window_icon(root)
+
+    image = load_startup_image()
+    if image is not None:
+        image_label = ttk.Label(root, image=image)
+        image_label.image = image
+        image_label.pack(padx=20, pady=(20, 10))
+    else:
+        image_label = ttk.Label(root, text="SECA Data Converter", font=("Arial", 16, "bold"))
+        image_label.pack(padx=20, pady=(20, 10))
+
+    button_frame = ttk.Frame(root)
+    button_frame.pack(pady=(0, 20))
+
+    readme_button = ttk.Button(button_frame, text="Read Me", command=lambda: show_readme_popup(root))
+    readme_button.pack(side="left", padx=10)
+
+    def on_continue() -> None:
+        proceed["value"] = True
+        root.destroy()
+
+    continue_button = ttk.Button(button_frame, text="Continue", command=on_continue)
+    continue_button.pack(side="left", padx=10)
+
+    center_window(root)
+    root.mainloop()
+    return proceed["value"]
 
 def normalize_number(token: str) -> float:
     token = token.replace(",", ".")
@@ -984,6 +1052,9 @@ class ProgressWindow:
 
 
 def main() -> None:
+    if not show_startup_screen():
+        return
+
     pdf_files = select_pdf_files()
     if not pdf_files:
         show_message("SECA Data Converter", "No PDF files were selected.")
