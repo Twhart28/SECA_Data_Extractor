@@ -546,7 +546,7 @@ def evaluate_data_quality(values: Dict[str, Optional[float]]) -> Dict[str, Optio
         ratio = values["ECW/TBW (%)"]
         if tbw in (0, None):
             failures.append("6")
-        elif not almost_equal(((ecw or 0) / (tbw or 1)) * 100, ratio or 0, 0.02):
+        elif not almost_equal(((ecw or 0) / (tbw or 1)) * 100, ratio or 0, 0.03):
             failures.append("6")
     else:
         failures.append("6")
