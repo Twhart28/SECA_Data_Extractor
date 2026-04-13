@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import math
+import os
 import re
+import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -42,7 +45,10 @@ MEASUREMENT_CROP_BOXES = [
     (("Physical Activity Level",), (7045, 12990, 8318, 13325)),
 ]
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+DEFAULT_TESSERACT_DIR = Path(
+    os.environ.get("SECA_TESSERACT_DIR", r"C:\Program Files\Tesseract-OCR")
+)
+_OCR_CONFIG: Optional[str] = None
 
 NUMBER_PATTERN = re.compile(r"-?\d+(?:[.,]\d+)?")
 PATIENT_FIELDS = {
@@ -90,6 +96,73 @@ CALCULATED_FIELD_NAMES: List[str] = [
 ]
 REVIEWABLE_FIELDS = set(MEASUREMENT_FIELD_NAMES + CALCULATED_FIELD_NAMES)
 DEBUG_SAVE_OCR_TXT = 0
+
+
+def _runtime_search_roots() -> List[Path]:
+    roots: List[Path] = []
+
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        roots.extend([exe_dir, exe_dir / "_internal"])
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            roots.append(Path(meipass))
+
+    roots.append(Path(__file__).resolve().parent)
+    roots.append(DEFAULT_TESSERACT_DIR)
+
+    deduped: List[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root).lower()
+        if key not in seen:
+            seen.add(key)
+            deduped.append(root)
+    return deduped
+
+
+def resolve_tesseract_runtime() -> tuple[Path, Path]:
+    env_cmd = os.environ.get("SECA_TESSERACT_CMD")
+    if env_cmd:
+        cmd_path = Path(env_cmd).expanduser()
+        tessdata_dir = cmd_path.parent / "tessdata"
+        if cmd_path.exists() and tessdata_dir.exists():
+            return cmd_path, tessdata_dir
+
+    for root in _runtime_search_roots():
+        cmd_path = root / "tesseract" / "tesseract.exe"
+        tessdata_dir = root / "tesseract" / "tessdata"
+        if cmd_path.exists() and tessdata_dir.exists():
+            return cmd_path, tessdata_dir
+
+        cmd_path = root / "tesseract.exe"
+        tessdata_dir = root / "tessdata"
+        if cmd_path.exists() and tessdata_dir.exists():
+            return cmd_path, tessdata_dir
+
+    which_path = shutil.which("tesseract")
+    if which_path:
+        cmd_path = Path(which_path)
+        tessdata_dir = cmd_path.parent / "tessdata"
+        if tessdata_dir.exists():
+            return cmd_path, tessdata_dir
+
+    raise FileNotFoundError(
+        "Tesseract OCR runtime was not found. Use the packaged build, or install "
+        "Tesseract locally, or set SECA_TESSERACT_CMD / SECA_TESSERACT_DIR."
+    )
+
+
+def ensure_tesseract_runtime() -> str:
+    global _OCR_CONFIG
+
+    if _OCR_CONFIG is None:
+        cmd_path, tessdata_dir = resolve_tesseract_runtime()
+        pytesseract.pytesseract.tesseract_cmd = str(cmd_path)
+        os.environ["TESSDATA_PREFIX"] = str(tessdata_dir)
+        _OCR_CONFIG = f'--tessdata-dir "{tessdata_dir}"'
+
+    return _OCR_CONFIG
 
 
 def output_field_order() -> List[str]:
@@ -195,12 +268,13 @@ def extract_measurements_from_page_image(
     measurements: Dict[str, Optional[float]] = {}
     debug_lines: List[str] = []
     field_images: Dict[str, object] = {}
+    ocr_config = ensure_tesseract_runtime()
 
     for fields, base_box in MEASUREMENT_CROP_BOXES:
         try:
             crop_box = scale_box_to_image(base_box, pil_image.size)
             cropped = pil_image.crop(crop_box)
-            ocr_text = pytesseract.image_to_string(cropped)
+            ocr_text = pytesseract.image_to_string(cropped, config=ocr_config)
         except Exception:
             cropped = None
             ocr_text = ""

@@ -1371,7 +1371,7 @@ class MainWindow(QMainWindow):
             <h3>Notes</h3>
             <ul>
               <li>This app processes reports locally on your machine.</li>
-              <li>Tesseract OCR must be installed for extraction to work.</li>
+              <li>The packaged release includes its OCR runtime. Source-checkout runs can use a local Tesseract install or SECA_TESSERACT_CMD.</li>
               <li>The Overview tab includes a QC legend explaining each QC code.</li>
             </ul>
             <h3>Links And Contact</h3>

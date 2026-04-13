@@ -44,9 +44,26 @@ From the repository root:
 
 The packaged app is created under `dist\seca_qt_converter`.
 
-## Tesseract requirement
+To create a handoff build for another user:
 
-Tesseract OCR must be installed locally. The current backend expects the Windows default path:
+```powershell
+.\qt_redesign\package_release.ps1
+```
+
+That script builds:
+- a portable folder under `dist\seca_qt_converter`
+- a portable zip under `dist\seca_qt_converter_portable.zip`
+- an installer exe under `dist\seca_qt_converter_setup.exe` if Inno Setup is installed
+
+## OCR runtime
+
+The packaged Version 2 release bundles Tesseract OCR, so recipients do not need to install Python or Tesseract first.
+
+For source-checkout runs, the app can use:
+- a bundled runtime next to the exe
+- `SECA_TESSERACT_CMD`
+- `SECA_TESSERACT_DIR`
+- a local Tesseract install on the Windows default path
 
 ```text
 C:\Program Files\Tesseract-OCR\tesseract.exe

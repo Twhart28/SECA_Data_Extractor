@@ -11,10 +11,22 @@ From the repository root:
 .\.venv\Scripts\python.exe .\qt_redesign\app.py
 ```
 
-Tesseract OCR still needs to be installed locally. The current backend expects the Windows default path:
+For source-checkout runs, the backend can use a local Tesseract install. The default Windows path is:
 
 ```text
 C:\Program Files\Tesseract-OCR\tesseract.exe
+```
+
+You can also override that with:
+
+```powershell
+$env:SECA_TESSERACT_CMD="C:\Path\To\tesseract.exe"
+```
+
+or:
+
+```powershell
+$env:SECA_TESSERACT_DIR="C:\Path\To\Tesseract-OCR"
 ```
 
 ## Workflow
@@ -32,6 +44,8 @@ C:\Program Files\Tesseract-OCR\tesseract.exe
 - `backend.py`: PDF parsing, OCR, QC rules, and Excel export logic
 - `App_Logo.ico`: local icon used by the Qt app and PyInstaller spec
 - `seca_qt_converter.spec`: PyInstaller build spec for the standalone Qt executable
+- `seca_qt_converter.iss`: Inno Setup installer definition
+- `package_release.ps1`: release helper that builds the portable zip and installer
 
 ## Build an executable
 
@@ -48,3 +62,22 @@ Then run from the repository root:
 ```
 
 The executable will be created under `dist\seca_qt_converter`.
+
+The PyInstaller spec bundles the OCR runtime from `SECA_TESSERACT_DIR` if set, otherwise from:
+
+```text
+C:\Program Files\Tesseract-OCR
+```
+
+## Build a handoff package
+
+From the repository root:
+
+```powershell
+.\qt_redesign\package_release.ps1
+```
+
+That script creates:
+- `dist\seca_qt_converter\` portable app folder
+- `dist\seca_qt_converter_portable.zip` for direct sharing
+- `dist\seca_qt_converter_setup.exe` if Inno Setup 6 is installed on the build machine
