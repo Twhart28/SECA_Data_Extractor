@@ -1,6 +1,6 @@
-# SECA Data Converter Qt Redesign
+# SECA Data Converter Version 2
 
-This folder contains a standalone PySide6/Qt version of the SECA Data Converter. The Qt app now has its own local backend in `qt_redesign/backend.py` and does not rely on `seca_data_converter.py`.
+This folder contains the standalone **Version 2** PySide6/Qt application. The Qt app has its own local backend in `qt_redesign/backend.py` and does not rely on the older Tkinter implementation in `legacy_v1/`.
 
 ## Run locally
 
