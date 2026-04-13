@@ -1,4 +1,4 @@
-"""SECA Data Converter
+"""SECA Data Extractor
 =======================
 
 This script opens GUI dialogs to let a user select one or more SECA PDF
@@ -236,7 +236,7 @@ def load_startup_image() -> Optional[ImageTk.PhotoImage]:
 def show_startup_screen() -> bool:
     proceed = {"value": False}
     root = Tk()
-    root.title("SECA Data Converter")
+    root.title("SECA Data Extractor")
     apply_window_icon(root)
 
     image = load_startup_image()
@@ -245,7 +245,7 @@ def show_startup_screen() -> bool:
         image_label.image = image
         image_label.pack(padx=20, pady=(20, 10))
     else:
-        image_label = ttk.Label(root, text="SECA Data Converter", font=("Arial", 16, "bold"))
+        image_label = ttk.Label(root, text="SECA Data Extractor", font=("Arial", 16, "bold"))
         image_label.pack(padx=20, pady=(20, 10))
 
     button_frame = ttk.Frame(root)
@@ -1057,14 +1057,14 @@ def main() -> None:
 
     pdf_files = select_pdf_files()
     if not pdf_files:
-        show_message("SECA Data Converter", "No PDF files were selected.")
+        show_message("SECA Data Extractor", "No PDF files were selected.")
         return
 
     save_ocr_txt = bool(DEBUG_SAVE_OCR_TXT)
 
     output_path = select_output_path()
     if output_path is None:
-        show_message("SECA Data Converter", "No download location was selected.")
+        show_message("SECA Data Extractor", "No download location was selected.")
         return
 
     parsed_entries: List[Dict[str, object]] = []
@@ -1122,7 +1122,7 @@ def main() -> None:
         return
 
     show_message(
-        "SECA Data Converter",
+        "SECA Data Extractor",
         f"Successfully saved data for {len(rows)} file(s) to:\n{output_path}",
     )
 

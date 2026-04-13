@@ -1,9 +1,9 @@
-#define MyAppName "SECA Data Converter"
+#define MyAppName "SECA Data Extractor"
 #define MyAppVersion "2.0.0"
 #define MyAppPublisher "Thomas Hart"
-#define MyAppURL "https://github.com/Twhart28/SECA_Data_Converter"
-#define MyAppExeName "seca_qt_converter.exe"
-#define MyBuildDir "..\dist\seca_qt_converter"
+#define MyAppURL "https://github.com/Twhart28/SECA_Data_Extractor"
+#define MyAppExeName "seca_data_extractor.exe"
+#define MyBuildDir "..\dist\seca_data_extractor"
 #define MyOutputDir "..\dist"
 
 [Setup]
@@ -19,7 +19,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir={#MyOutputDir}
-OutputBaseFilename=seca_qt_converter_setup
+OutputBaseFilename=seca_data_extractor_setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

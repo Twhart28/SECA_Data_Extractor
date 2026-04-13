@@ -1,4 +1,4 @@
-# SECA Data Converter Version 2
+# SECA Data Extractor Version 2
 
 This folder contains the standalone **Version 2** PySide6/Qt application. The Qt app has its own local backend in `qt_redesign/backend.py` and does not rely on the older Tkinter implementation in `legacy_v1/`.
 
@@ -43,8 +43,8 @@ $env:SECA_TESSERACT_DIR="C:\Path\To\Tesseract-OCR"
 - `app.py`: Qt user interface
 - `backend.py`: PDF parsing, OCR, QC rules, and Excel export logic
 - `App_Logo.ico`: local icon used by the Qt app and PyInstaller spec
-- `seca_qt_converter.spec`: PyInstaller build spec for the standalone Qt executable
-- `seca_qt_converter.iss`: Inno Setup installer definition
+- `seca_data_extractor.spec`: PyInstaller build spec for the standalone Qt executable
+- `seca_data_extractor.iss`: Inno Setup installer definition
 - `package_release.ps1`: release helper that builds the portable zip and installer
 
 ## Build an executable
@@ -58,10 +58,10 @@ Install PyInstaller in the environment if needed:
 Then run from the repository root:
 
 ```powershell
-.\.venv\Scripts\pyinstaller.exe .\qt_redesign\seca_qt_converter.spec
+.\.venv\Scripts\pyinstaller.exe .\qt_redesign\seca_data_extractor.spec
 ```
 
-The executable will be created under `dist\seca_qt_converter`.
+The executable will be created under `dist\seca_data_extractor`.
 
 The PyInstaller spec bundles the OCR runtime from `SECA_TESSERACT_DIR` if set, otherwise from:
 
@@ -78,6 +78,6 @@ From the repository root:
 ```
 
 That script creates:
-- `dist\seca_qt_converter\` portable app folder
-- `dist\seca_qt_converter_portable.zip` for direct sharing
-- `dist\seca_qt_converter_setup.exe` if Inno Setup 6 is installed on the build machine
+- `dist\seca_data_extractor\` portable app folder
+- `dist\seca_data_extractor_portable.zip` for direct sharing
+- `dist\seca_data_extractor_setup.exe` if Inno Setup 6 is installed on the build machine

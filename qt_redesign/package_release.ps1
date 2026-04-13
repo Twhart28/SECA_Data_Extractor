@@ -3,12 +3,12 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $python = Join-Path $repoRoot ".venv\Scripts\python.exe"
 $pyinstaller = Join-Path $repoRoot ".venv\Scripts\pyinstaller.exe"
-$specPath = Join-Path $repoRoot "qt_redesign\seca_qt_converter.spec"
+$specPath = Join-Path $repoRoot "qt_redesign\seca_data_extractor.spec"
 $distDir = Join-Path $repoRoot "dist"
-$appDir = Join-Path $distDir "seca_qt_converter"
-$zipPath = Join-Path $distDir "seca_qt_converter_portable.zip"
-$installerScript = Join-Path $repoRoot "qt_redesign\seca_qt_converter.iss"
-$installerOutput = Join-Path $distDir "seca_qt_converter_setup.exe"
+$appDir = Join-Path $distDir "seca_data_extractor"
+$zipPath = Join-Path $distDir "seca_data_extractor_portable.zip"
+$installerScript = Join-Path $repoRoot "qt_redesign\seca_data_extractor.iss"
+$installerOutput = Join-Path $distDir "seca_data_extractor_setup.exe"
 
 function Find-InnoSetupCompiler {
     $candidates = @(

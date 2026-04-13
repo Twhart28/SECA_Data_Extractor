@@ -1,6 +1,6 @@
-# SECA Data Converter
+# SECA Data Extractor
 
-SECA Data Converter is a desktop utility for extracting patient metadata and body-composition measurements from SECA PDF reports and exporting them to Excel.
+SECA Data Extractor is a desktop utility for extracting patient metadata and body-composition measurements from SECA PDF reports and exporting them to Excel.
 
 This repository now treats the **PySide6/Qt application as Version 2**, and keeps the older Tkinter implementation archived as **Version 1**.
 
@@ -39,10 +39,10 @@ From the repository root:
 ## Build Version 2 executable
 
 ```powershell
-.\.venv\Scripts\pyinstaller.exe .\qt_redesign\seca_qt_converter.spec
+.\.venv\Scripts\pyinstaller.exe .\qt_redesign\seca_data_extractor.spec
 ```
 
-The packaged app is created under `dist\seca_qt_converter`.
+The packaged app is created under `dist\seca_data_extractor`.
 
 To create a handoff build for another user:
 
@@ -51,9 +51,9 @@ To create a handoff build for another user:
 ```
 
 That script builds:
-- a portable folder under `dist\seca_qt_converter`
-- a portable zip under `dist\seca_qt_converter_portable.zip`
-- an installer exe under `dist\seca_qt_converter_setup.exe` if Inno Setup is installed
+- a portable folder under `dist\seca_data_extractor`
+- a portable zip under `dist\seca_data_extractor_portable.zip`
+- an installer exe under `dist\seca_data_extractor_setup.exe` if Inno Setup is installed
 
 ## OCR runtime
 
@@ -75,5 +75,5 @@ The previous Tkinter-based release is preserved in [`legacy_v1/`](./legacy_v1/) 
 
 ## Repository
 
-- GitHub: [Twhart28/SECA_Data_Converter](https://github.com/Twhart28/SECA_Data_Converter)
+- GitHub: [Twhart28/SECA_Data_Extractor](https://github.com/Twhart28/SECA_Data_Extractor)
 - Contact: `thomaswhart28@gmail.com`

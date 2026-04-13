@@ -1,4 +1,4 @@
-# SECA Data Converter
+# SECA Data Extractor Version 1
 
 Archived **Version 1** of the application. This is the previous Tkinter-based implementation and is kept for reference.
 
@@ -24,7 +24,7 @@ A Tkinter-based utility that extracts patient metadata and measurement values fr
    tesseract --version
    ```
 
-## Running the converter
+## Running the extractor
 Launch the GUI from an activated environment:
 ```bash
 python seca_data_converter.py

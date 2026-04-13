@@ -120,7 +120,7 @@ QC_CODE_DESCRIPTIONS = {
     "9": "Reactance and Resistance should reproduce Phase Angle (deg).",
     "10": "Phase Angle Percentile must be between 0 and 100.",
 }
-REPO_URL = "https://github.com/Twhart28/SECA_Data_Converter"
+REPO_URL = "https://github.com/Twhart28/SECA_Data_Extractor"
 CONTACT_EMAIL = "thomaswhart28@gmail.com"
 
 
@@ -653,7 +653,7 @@ class MainWindow(QMainWindow):
         self.updating_review_table = False
         self.last_export_path: Optional[Path] = None
 
-        self.setWindowTitle("SECA Data Converter")
+        self.setWindowTitle("SECA Data Extractor")
         self.resize(1280, 860)
         if APP_ICON.exists():
             self.setWindowIcon(QIcon(str(APP_ICON)))
@@ -688,7 +688,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(4)
 
         title_row = QHBoxLayout()
-        title = QLabel("SECA Data Converter")
+        title = QLabel("SECA Data Extractor")
         title.setObjectName("title")
         self.info_button = QToolButton()
         self.info_button.setObjectName("infoButton")
@@ -1214,7 +1214,7 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(
             self,
             "Processing failed",
-            "The converter could not finish processing the selected PDFs.\n\n"
+            "The extractor could not finish processing the selected PDFs.\n\n"
             f"{details}",
         )
         self.refresh_results()
@@ -1344,7 +1344,7 @@ class MainWindow(QMainWindow):
 
     def show_info_dialog(self) -> None:
         dialog = QDialog(self)
-        dialog.setWindowTitle("About SECA Data Converter")
+        dialog.setWindowTitle("About SECA Data Extractor")
         dialog.resize(620, 460)
         if APP_ICON.exists():
             dialog.setWindowIcon(QIcon(str(APP_ICON)))
@@ -1353,7 +1353,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(12)
 
-        title = QLabel("SECA Data Converter")
+        title = QLabel("SECA Data Extractor")
         title.setObjectName("summaryLabel")
         body = QTextBrowser()
         body.setOpenExternalLinks(True)
