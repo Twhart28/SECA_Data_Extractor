@@ -4,6 +4,7 @@ import math
 import os
 import re
 import shutil
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -164,7 +165,27 @@ def ensure_tesseract_runtime() -> str:
         _OCR_CONFIG = ""
 
     if not _OCR_RUNTIME_VALIDATED:
-        pytesseract.get_tesseract_version()
+        cmd_path = Path(pytesseract.pytesseract.tesseract_cmd)
+        process_kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.STDOUT,
+            "stdin": subprocess.DEVNULL,
+            "env": os.environ.copy(),
+            "text": True,
+        }
+        if hasattr(subprocess, "STARTUPINFO"):
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+            process_kwargs["startupinfo"] = startupinfo
+        try:
+            subprocess.run(
+                [str(cmd_path), "--version"],
+                check=True,
+                **process_kwargs,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise pytesseract.TesseractNotFoundError() from exc
         _OCR_RUNTIME_VALIDATED = True
 
     return _OCR_CONFIG
