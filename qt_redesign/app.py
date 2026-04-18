@@ -1211,11 +1211,17 @@ class MainWindow(QMainWindow):
     def processing_failed(self, details: str) -> None:
         self.status_label.setText("Processing failed.")
         self._set_processing_state(False)
+        guidance = ""
+        if "OCR did not detect any measurement values" in details:
+            guidance = (
+                "\n\nCheck that the PDF is a supported SECA export and that the "
+                "measurement page is actually present."
+            )
         QMessageBox.critical(
             self,
             "Processing failed",
             "The extractor could not finish processing the selected PDFs.\n\n"
-            f"{details}",
+            f"{details}{guidance}",
         )
         self.refresh_results()
 
@@ -1622,17 +1628,15 @@ class MainWindow(QMainWindow):
         if self.review_items:
             response = QMessageBox.question(
                 self,
-                "Apply review edits?",
-                "There are still flagged fields in the review tab. Apply the current review-table edits before export?",
+                "Export with remaining flags?",
+                "There are still flagged fields in the review tab.\n\n"
+                "Are you sure you want to export the workbook now?",
                 QMessageBox.StandardButton.Yes
-                | QMessageBox.StandardButton.No
-                | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Yes,
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            if response == QMessageBox.StandardButton.Cancel:
+            if response != QMessageBox.StandardButton.Yes:
                 return
-            if response == QMessageBox.StandardButton.Yes:
-                self.apply_all_review_edits()
 
         try:
             self.output_path.parent.mkdir(parents=True, exist_ok=True)

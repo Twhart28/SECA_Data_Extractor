@@ -14,7 +14,7 @@ import pdfplumber
 import pytesseract
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
-from PIL import Image
+from PIL import Image, ImageOps, ImageStat
 
 MEASUREMENT_BASE_WIDTH = 9917
 MEASUREMENT_BASE_HEIGHT = 14034
@@ -49,6 +49,7 @@ DEFAULT_TESSERACT_DIR = Path(
     os.environ.get("SECA_TESSERACT_DIR", r"C:\Program Files\Tesseract-OCR")
 )
 _OCR_CONFIG: Optional[str] = None
+_OCR_RUNTIME_VALIDATED = False
 
 NUMBER_PATTERN = re.compile(r"-?\d+(?:[.,]\d+)?")
 PATIENT_FIELDS = {
@@ -154,15 +155,36 @@ def resolve_tesseract_runtime() -> tuple[Path, Path]:
 
 
 def ensure_tesseract_runtime() -> str:
-    global _OCR_CONFIG
+    global _OCR_CONFIG, _OCR_RUNTIME_VALIDATED
 
     if _OCR_CONFIG is None:
         cmd_path, tessdata_dir = resolve_tesseract_runtime()
         pytesseract.pytesseract.tesseract_cmd = str(cmd_path)
         os.environ["TESSDATA_PREFIX"] = str(tessdata_dir)
-        _OCR_CONFIG = f'--tessdata-dir "{tessdata_dir}"'
+        _OCR_CONFIG = ""
+
+    if not _OCR_RUNTIME_VALIDATED:
+        pytesseract.get_tesseract_version()
+        _OCR_RUNTIME_VALIDATED = True
 
     return _OCR_CONFIG
+
+
+def image_content_score(image: Image.Image) -> float:
+    gray_image = image.convert("L")
+    inverted = ImageOps.invert(gray_image)
+    bbox = inverted.getbbox()
+    if bbox is None:
+        return 0.0
+
+    width = max(1, gray_image.width)
+    height = max(1, gray_image.height)
+    bbox_area = max(1, bbox[2] - bbox[0]) * max(1, bbox[3] - bbox[1])
+    area_ratio = bbox_area / float(width * height)
+    stats = ImageStat.Stat(gray_image)
+    contrast = float(stats.var[0]) / 1000.0
+    darkness = max(0.0, 255.0 - float(stats.mean[0])) / 255.0
+    return area_ratio + contrast + darkness
 
 
 def output_field_order() -> List[str]:
@@ -264,10 +286,11 @@ def resolve_scanned_id(header_text: str) -> Optional[str]:
 
 def extract_measurements_from_page_image(
     pil_image: Image.Image,
-) -> Tuple[Dict[str, Optional[float]], List[str], Dict[str, object]]:
+) -> Tuple[Dict[str, Optional[float]], List[str], Dict[str, object], Dict[str, float]]:
     measurements: Dict[str, Optional[float]] = {}
     debug_lines: List[str] = []
     field_images: Dict[str, object] = {}
+    field_image_scores: Dict[str, float] = {}
     ocr_config = ensure_tesseract_runtime()
 
     for fields, base_box in MEASUREMENT_CROP_BOXES:
@@ -288,8 +311,12 @@ def extract_measurements_from_page_image(
             measurements[field] = numbers[index] if index < len(numbers) else None
             if field not in field_images and cropped is not None:
                 field_images[field] = cropped.copy()
+            if cropped is not None:
+                field_image_scores[field] = image_content_score(cropped) + (
+                    10.0 if measurements[field] is not None else 0.0
+                )
 
-    return measurements, debug_lines, field_images
+    return measurements, debug_lines, field_images, field_image_scores
 
 
 def extract_measurements_from_pdf(
@@ -298,21 +325,31 @@ def extract_measurements_from_pdf(
     measurements: Dict[str, Optional[float]] = {name: None for name in MEASUREMENT_FIELD_NAMES}
     debug_parts: List[str] = []
     field_images: Dict[str, object] = {}
+    field_image_scores: Dict[str, float] = {}
 
     with pdfplumber.open(pdf_path) as pdf:
         for page_index, page in enumerate(pdf.pages, start=1):
             pil_image = page.to_image(resolution=OCR_RENDER_RESOLUTION).original
-            page_measurements, page_debug_lines, page_field_images = extract_measurements_from_page_image(
+            page_measurements, page_debug_lines, page_field_images, page_field_scores = extract_measurements_from_page_image(
                 pil_image
             )
             for field, value in page_measurements.items():
                 if value is not None:
                     measurements[field] = value
             for field, image in page_field_images.items():
-                if field not in field_images:
+                candidate_score = page_field_scores.get(field, 0.0)
+                current_score = field_image_scores.get(field, -1.0)
+                if candidate_score > current_score:
                     field_images[field] = image
+                    field_image_scores[field] = candidate_score
             if page_debug_lines:
                 debug_parts.append(f"Page {page_index}:\n" + "\n".join(page_debug_lines))
+
+    if not debug_parts and not any(value is not None for value in measurements.values()):
+        raise RuntimeError(
+            "OCR did not detect any measurement values in this PDF. This usually means the "
+            "report layout changed, the wrong page was rendered, or the OCR runtime is not working."
+        )
 
     return measurements, "\n\n".join(debug_parts), field_images
 
